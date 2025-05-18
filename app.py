@@ -1,4 +1,3 @@
-
 from flask import Flask, request, render_template_string, redirect, url_for
 import requests
 import json
@@ -23,25 +22,33 @@ def save_users(data):
 
 @app.route("/", methods=["GET", "POST"])
 def index():
+    error = ""
     if request.method == "POST":
         number = request.form.get("msisdn")
         if number and number.startswith("07") and len(number) == 10:
             msisdn = "213" + number[1:]
-            if send_otp(msisdn):
+            success = send_otp(msisdn)
+            if success:
                 return redirect(url_for("verify", msisdn=msisdn))
-            return "❌ فشل في إرسال OTP."
-        return "⚠️ رقم غير صحيح."
+            else:
+                error = "❌ فشل في إرسال OTP."
+        else:
+            error = "⚠️ رقم غير صحيح. يرجى إدخال رقم يبدأ بـ 07 ويتكون من 10 أرقام."
     return render_template_string("""
         <h2>📲 أدخل رقمك لتفعيل Nactivi2Go:</h2>
         <form method="post">
             <input type="text" name="msisdn" placeholder="07XXXXXXXX" required>
             <button type="submit">💬 إرسال الرمز</button>
         </form>
-    """)
+        <p style="color: red;">{{ error }}</p>
+    """, error=error)
 
 @app.route("/verify", methods=["GET", "POST"])
 def verify():
     msisdn = request.args.get("msisdn")
+    if not msisdn:
+        return redirect(url_for("index"))
+
     if request.method == "POST":
         otp = request.form.get("otp")
         tokens = verify_otp(msisdn, otp)
@@ -64,7 +71,8 @@ def verify():
                 return f"✅ تم التفعيل لرقم {msisdn[-4:]} بنجاح!"
             else:
                 return "⚠️ فشل التفعيل أو تم التفعيل مسبقاً."
-        return "❌ رمز غير صحيح."
+        return "❌ رمز غير صحيح أو منتهي الصلاحية."
+    
     return render_template_string("""
         <h2>💬 أدخل رمز Nactivi2Go:</h2>
         <form method="post">
