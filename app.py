@@ -27,6 +27,16 @@ def index():
         number = request.form.get("msisdn")
         if number and number.startswith("07") and len(number) == 10:
             msisdn = "213" + number[1:]
+            users = load_users()
+
+            # تحقق إذا الرقم مفعل من قبل خلال 7 أيام
+            user = users.get(msisdn)
+            if user:
+                last_activation = datetime.fromisoformat(user['activated_at'])
+                if datetime.now() - last_activation < timedelta(days=7):
+                    return f"⏳ هذا الرقم مفعل بالفعل. يرجى الانتظار أسبوع. تم التفعيل يوم: {user['activated_at']}"
+
+            # إرسال OTP
             success = send_otp(msisdn)
             if success:
                 return redirect(url_for("verify", msisdn=msisdn))
@@ -41,6 +51,7 @@ def index():
             <button type="submit">💬 إرسال الرمز</button>
         </form>
         <p style="color: red;">{{ error }}</p>
+        <a href="/users">📋 عرض قائمة الأرقام</a>
     """, error=error)
 
 @app.route("/verify", methods=["GET", "POST"])
@@ -54,13 +65,7 @@ def verify():
         tokens = verify_otp(msisdn, otp)
         if tokens:
             users = load_users()
-            user = users.get(msisdn)
             now = datetime.now()
-            if user:
-                last_activation = datetime.fromisoformat(user['activated_at'])
-                if now - last_activation < timedelta(days=7):
-                    remaining = timedelta(days=7) - (now - last_activation)
-                    return f"⏳ لم تكمل الأسبوع بعد. متبقي: {remaining.days} يوم و {remaining.seconds // 3600} ساعة."
             users[msisdn] = {
                 "access_token": tokens["access_token"],
                 "refresh_token": tokens["refresh_token"],
@@ -80,6 +85,23 @@ def verify():
             <button type="submit">✅ تحقق من الرمز</button>
         </form>
     """)
+
+@app.route("/users")
+def user_list():
+    users = load_users()
+    return render_template_string("""
+        <h2>📋 قائمة الأرقام المسجلة</h2>
+        <table border="1">
+            <tr><th>رقم الهاتف</th><th>تاريخ التفعيل</th></tr>
+            {% for msisdn, info in users.items() %}
+            <tr>
+                <td>{{ msisdn }}</td>
+                <td>{{ info['activated_at'] }}</td>
+            </tr>
+            {% endfor %}
+        </table>
+        <a href="/">⬅️ رجوع</a>
+    """, users=users)
 
 def send_otp(msisdn):
     url = 'https://apim.djezzy.dz/oauth2/registration'
