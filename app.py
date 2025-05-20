@@ -27,21 +27,11 @@ def index():
         number = request.form.get("msisdn")
         if number and number.startswith("07") and len(number) == 10:
             msisdn = "213" + number[1:]
-            users = load_users()
-
-            # تحقق إذا الرقم مفعل من قبل خلال 7 أيام
-            user = users.get(msisdn)
-            if user:
-                last_activation = datetime.fromisoformat(user['activated_at'])
-                if datetime.now() - last_activation < timedelta(days=7):
-                    return f"⏳ هذا الرقم مفعل بالفعل. يرجى الانتظار أسبوع. تم التفعيل يوم: {user['activated_at']}"
-
-            # إرسال OTP
             success = send_otp(msisdn)
             if success:
                 return redirect(url_for("verify", msisdn=msisdn))
             else:
-                error = "❌ فشل في إرسال OTP."
+                error = "❌ فشل في إرسال OTP. تأكد أن الرقم صحيح وأن الخدمة تعمل حالياً."
         else:
             error = "⚠️ رقم غير صحيح. يرجى إدخال رقم يبدأ بـ 07 ويتكون من 10 أرقام."
     return render_template_string("""
@@ -51,7 +41,6 @@ def index():
             <button type="submit">💬 إرسال الرمز</button>
         </form>
         <p style="color: red;">{{ error }}</p>
-        <a href="/users">📋 عرض قائمة الأرقام</a>
     """, error=error)
 
 @app.route("/verify", methods=["GET", "POST"])
@@ -65,7 +54,13 @@ def verify():
         tokens = verify_otp(msisdn, otp)
         if tokens:
             users = load_users()
+            user = users.get(msisdn)
             now = datetime.now()
+            if user:
+                last_activation = datetime.fromisoformat(user['activated_at'])
+                if now - last_activation < timedelta(days=7):
+                    remaining = timedelta(days=7) - (now - last_activation)
+                    return f"⏳ لم تكمل الأسبوع بعد. متبقي: {remaining.days} يوم و {remaining.seconds // 3600} ساعة."
             users[msisdn] = {
                 "access_token": tokens["access_token"],
                 "refresh_token": tokens["refresh_token"],
@@ -86,38 +81,25 @@ def verify():
         </form>
     """)
 
-@app.route("/users")
-def user_list():
-    users = load_users()
-    return render_template_string("""
-        <h2>📋 قائمة الأرقام المسجلة</h2>
-        <table border="1">
-            <tr><th>رقم الهاتف</th><th>تاريخ التفعيل</th></tr>
-            {% for msisdn, info in users.items() %}
-            <tr>
-                <td>{{ msisdn }}</td>
-                <td>{{ info['activated_at'] }}</td>
-            </tr>
-            {% endfor %}
-        </table>
-        <a href="/">⬅️ رجوع</a>
-    """, users=users)
-
 def send_otp(msisdn):
     url = 'https://apim.djezzy.dz/oauth2/registration'
     data = f'msisdn={msisdn}&client_id={CLIENT_ID}&scope=smsotp'
     headers = {
-        'User-Agent': 'Djezzy/2.6.7',
+        'User-Agent': 'Djezzy/3.0.0',
         'Content-Type': 'application/x-www-form-urlencoded'
     }
     res = requests.post(url, data=data, headers=headers)
-    return res.status_code == 200
+
+    print("OTP Response Status:", res.status_code)
+    print("OTP Response Body:", res.text)
+
+    return res.status_code == 200 and "otp" in res.text.lower()
 
 def verify_otp(msisdn, otp):
     url = 'https://apim.djezzy.dz/oauth2/token'
     data = f'otp={otp}&mobileNumber={msisdn}&scope=openid&client_id={CLIENT_ID}&client_secret={CLIENT_SECRET}&grant_type=mobile'
     headers = {
-        'User-Agent': 'Djezzy/2.6.7',
+        'User-Agent': 'Djezzy/3.0.0',
         'Content-Type': 'application/x-www-form-urlencoded'
     }
     res = requests.post(url, data=data, headers=headers)
@@ -142,7 +124,7 @@ def activate_2go(msisdn, token):
     }
     headers = {
         "Authorization": f"Bearer {token}",
-        "User-Agent": "Djezzy/2.6.7",
+        "User-Agent": "Djezzy/3.0.0",
         "Content-Type": "application/json"
     }
     res = requests.post(url, json=payload, headers=headers)
